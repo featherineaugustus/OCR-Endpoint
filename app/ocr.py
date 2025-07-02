@@ -5,11 +5,17 @@ from PIL import Image
 import easyocr
 from paddleocr import PaddleOCR
 
-ocr_engine = PaddleOCR(use_angle_cls=True, lang='en')  # Run this ONCE globally
-# reader = easyocr.Reader(['en'])  # 'en' = English language
-
 SUPPORTED_TYPES = ["referral_letter", "medical_certificate", "receipt"]
 
+##################################################################################
+# Load OCR Engine
+##################################################################################
+ocr_engine = PaddleOCR(use_angle_cls=True, lang='en')  # Run this ONCE globally
+
+
+##################################################################################
+# Perform OCR on page
+##################################################################################
 def ocr_page_with_paddleocr(pix):
     img_bytes = pix.tobytes("png")
     image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
@@ -20,25 +26,72 @@ def ocr_page_with_paddleocr(pix):
     for line in result:
         lines = lines + line['rec_texts']
     return lines
-    #     print(line)
-    #     box, (text, score) = line
-    #     if score > 0.5:
-    #         lines.append(text)
-    # return " ".join(lines)
 
+
+##################################################################################
+# Classify documents
+##################################################################################
 def classify_document(text: str):
-    if "Referral No" in text or "Provisional Diagnosis" in text:
+    text = [x.lower() for x in text]
+    substring_list_referral = ['kind regards']
+    substring_list_mc = ['typeofmedicalcertificate']
+    substring_list_receipt = ['tax invoice']
+    
+    if any(x in text for x in substring_list_referral):
         return "referral_letter"
-    if "MC Days" in text or "Date of MC" in text:
+    elif any(x in text for x in substring_list_mc):
         return "medical_certificate"
-    if "Total Amount Paid" in text:
+    elif any(x in text for x in substring_list_receipt):
         return "receipt"
-    return None
+    else:
+        return None
 
-def extract_fields(doc_type: str, text: str):
-    # Placeholder parsers
-    if doc_type == "receipt":
-        return {
+
+##################################################################################
+# Check if a string can be converted into float
+##################################################################################
+def can_convert_to_float(s):
+    try:
+        float(s)
+        return True
+    except:
+        return False
+
+
+##################################################################################
+# Extract fields - MC
+##################################################################################
+def extract_fields_mc(text):
+    output = {
+        "claimant_name": None,
+        "claimant_address": None,
+        "claimant_date_of_birth": False,
+        "discharge_date_time": None,
+        "icd_code": None,
+        "provider_name": None,
+        "submission_date_time": None,
+        "date_of_mc": None,
+        "mc_days": None,
+        }
+    
+    text = [x.lower() for x in text]
+    for i, item in enumerate(text):
+        if 'name:' in item:
+            item = item.replace('name:', '').strip()
+            output['claimant_name'] = item
+        elif item.endswith('days'):
+            output['mc_days'] = item  
+        elif item.beginsswith('from'):
+            output['date_of_mc'] = item  
+            
+    return output
+
+
+##################################################################################
+# Extract fields - Receipt
+##################################################################################
+def extract_fields_receipt(text):
+    output = {
             "claimant_name": None,
             "provider_name": None,
             "signature_presence": None,
@@ -46,9 +99,28 @@ def extract_fields(doc_type: str, text: str):
             "total_approved_amount": None,
             "total_requested_amount": None
         }
+
+    text = [x.lower() for x in text]
+    for i, item in enumerate(text):
+        if 'self' in item:
+            output['claimant_name'] = text[i+1]
+        elif 'total amount paid' in item:
+            i = i + 1
+            while True:
+                if can_convert_to_float(text[i]):
+                    output['total_amount_paid'] = text[i]
+                    break
+                else:
+                    i = i + 1
         
-    elif doc_type == "referral_letter":
-        return{
+    return output
+
+
+##################################################################################
+# Extract fields - Referral
+##################################################################################
+def extract_fields_referral(text):
+    output =             {
             "date_of_birth": None,
             "gender": None,
             "location": None,
@@ -68,28 +140,40 @@ def extract_fields(doc_type: str, text: str):
             "referral_details": None,
             "provisional_diagnosis": None
             }
-        
+    
+    text = [x.lower() for x in text]
+    for i, item in enumerate(text):
+        if 'id:' in item:
+            output['referral_no'] = text[i]
+        if '2025:' in item:
+            output['appointment_date_and_time'] = text[i]
+        if 'thank' in item:
+            end = i + 1
+            while 'kind regards' not in text[end]:
+                end = end + 1
+            output['referral_details'] = ' '.join(text[i:end])
+            
+    return output
+
+
+##################################################################################
+# Extract fields
+##################################################################################
+def extract_fields(doc_type: str, text: str):
+    # Placeholder parsers
+    if doc_type == "receipt":
+        return extract_fields_receipt(text)
+    elif doc_type == "referral_letter":
+        return extract_fields_referral(text)
     elif doc_type == "medical_certificate":
-        return {
-            "claimant_name": None,
-            "claimant_address": None,
-            "claimant_date_of_birth": False,
-            "discharge_date_time": None,
-            "icd_code": None,
-            "provider_name": None,
-            "submission_date_time": None,
-            "date_of_mc": None,
-            "mc_days": None,
-        }
-    return {}
+        return extract_fields_mc(text)
+    else:
+        return {}
 
-# def ocr_page_with_easyocr(pix):
-#     img_data = pix.tobytes("png")
-#     image = Image.open(io.BytesIO(img_data)).convert("RGB")
-#     img_np = np.array(image)
-#     ocr_result = reader.readtext(img_np, detail=0)
-#     return " ".join(ocr_result)
 
+##################################################################################
+# Process file
+##################################################################################
 def process_file(pdf_bytes: bytes):
     start = time.time()
     
@@ -98,23 +182,18 @@ def process_file(pdf_bytes: bytes):
     except Exception as e:
         raise RuntimeError(f"Failed to open PDF: {e}")
 
-    print(doc)
-    print('Page Count:', doc.page_count)
-
-    full_text = ""
+    lines = []
     for page in doc:
         text = page.get_text()
         if text.strip():
             full_text += text + "\n"
         else:
-            # OCR fallback
             pix = page.get_pixmap(dpi=300)
-            # full_text += ocr_page_with_easyocr(pix) + "\n"
-            full_text += ocr_page_with_paddleocr(pix) + "\n"
+            line =  ocr_page_with_paddleocr(pix)
+            lines = lines +line['rec_texts']
         
-    doc_type = classify_document(full_text)
-
-    fields = extract_fields(doc_type, full_text) if doc_type else {}
+    doc_type = classify_document(lines)
+    fields = extract_fields(doc_type, lines) if doc_type else {}
     
     elapsed = time.time() - start
     
