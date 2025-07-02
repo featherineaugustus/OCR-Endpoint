@@ -81,7 +81,7 @@ def extract_fields_mc(text):
             output['claimant_name'] = item
         elif item.endswith('days'):
             output['mc_days'] = item  
-        elif item.beginsswith('from'):
+        elif item.startswith('from'):
             output['date_of_mc'] = item  
             
     return output
@@ -184,17 +184,13 @@ def process_file(pdf_bytes: bytes):
 
     lines = []
     for page in doc:
-        text = page.get_text()
-        if text.strip():
-            full_text += text + "\n"
-        else:
-            pix = page.get_pixmap(dpi=300)
-            line =  ocr_page_with_paddleocr(pix)
-            lines = lines +line['rec_texts']
+        pix = page.get_pixmap(dpi=300)
+        line =  ocr_page_with_paddleocr(pix)
+        lines = lines + line
         
     doc_type = classify_document(lines)
     fields = extract_fields(doc_type, lines) if doc_type else {}
     
     elapsed = time.time() - start
     
-    return doc_type, full_text, fields, elapsed
+    return doc_type, lines, fields, elapsed

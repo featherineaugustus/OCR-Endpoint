@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from app.models import OCRResult
 from app.ocr import process_file
+from pprint import pprint
 
 app = FastAPI()
 
@@ -25,7 +26,7 @@ async def ocr_endpoint(file: UploadFile = File(...)):
     print('#'*60)
     print('Fields')
     print('#'*60)
-    print(fields)
+    pprint(fields)
     
     if not doc_type:
         raise HTTPException(status_code=422, detail="unsupported_document_type")

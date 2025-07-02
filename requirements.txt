@@ -7,6 +7,7 @@ pytest
 pymupdf
 frontend
 tools
+pprint
 # easyocr
 # paddleocr
 paddlepaddle==3.1.0 -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
