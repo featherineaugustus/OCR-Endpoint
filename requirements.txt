@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pytesseract
+Pillow
+pytest
+# fitz
+pymupdf
+frontend
+tools
+easyocr
+paddleocr
+# "paddlepaddle>=2.5.0" -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+# python -m pip install paddlepaddle==3.1.0 -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
